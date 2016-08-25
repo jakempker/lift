@@ -1,0 +1,121 @@
+---
+title: "Predicting a Good Bicep Curl with Accelerometers"
+author: "Jordan A. Kempker, MD, MSc"
+date: "`r Sys.Date()`"
+output: 
+  html_document: 
+    toc: yes
+---
+# Overview
+
+Groupware@LES has provided a publically available dataset for examining the use of accelerometers to predict *how well a person performs* a specific exercise. This application of **Human Activity Recognition (HAR)** utilizes several accelerometers worn on the arms and waist to produce a multitude of data during the performance of multiple repetitions of a bicep curl. These data are then used in various predictive machine learning algorithms to try and develop a model for accurately classifying a *correctly performed* bicep curl using accelerometer data. 
+
+# The Datasets
+
+The study involved 6 males, aged 20-28, with weight lifting experience and coaching during the exercises. They were professinally supervised in the performance of a *correct bicep curl* and then 4 other common mistakes in form. The type of curl that was performed is recorded in the **classe** variable of the dataset, with **class A** corresponding to the correct form and the other 4 classes corresponding to various incorrect forms.  This training dataset is meant to be used to develop a model to predict the class of bicep curl from the avialable data and give an estimate of its out of sample error.  This dataset is available from the following link.[https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv).
+
+These models are then meant to be applied to a new dataset that does NOT have the class of bicep curl recorded.  The models are meant ot be used to be able to predict teh type of bicep burl that is performed in this raw data.  This test dataset is available from the following link. [https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+
+# R Packages Required
+```{r, warning=FALSE, message=FALSE}
+library(caret)
+library(dplyr)
+```
+
+# Data Processing
+
+Despite my review of the [website](http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises) and the linked published paper, I found little adequate documenation that helps to understand each of the 160 variables in these datasets.  Given this limitation, we proceed as best we can.
+
+## Download Data and Import into R Object
+```{r}
+setwd("C:/Users/jkempke/Box Sync/Coursera/lift")
+
+download.file(url="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",	destfile = "./pml-training.csv")
+
+download.file(url="https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",	destfile = "./pml-testing.csv")
+
+training<-read.csv("./pml-training.csv")
+testing<-read.csv("./pml-testing.csv")
+```
+
+## Data Cleaning
+Upon examing the test dataset, I noted that many variables (100 to be exact) had no absolutely no values for any observations.  Reasoning, that it would not be logical to build any models from the training dataset using variables that would not be avialable in the test set, I chose to omit those variables using the following code below.
+
+Addtionally, for the analytic set I removed variables for identifiers and time variables since I could not find documentation that would guid me in their inteligent use towards developing a predictive model.  Conceptually, the time-value relationship would be importatn but I could not figure if there was a standardized time zero to scale everything to.
+
+```{r}
+#create a logical which =TRUE if data is missing for all observations of variable
+missing<-sapply(testing, function(x)all(is.na(x)))
+#get the column names where all data are missing, using above logical and save to 
+#character vector
+MissingVariables <- colnames(testing[missing==TRUE])
+#select only variables that have data using the "one_of" helper of dplyr::select
+testing <- select(testing, -one_of(MissingVariables))
+#apply this to training set so that we are only working with variables that we will
+#encounter in the true test set.
+training <- select(training,-one_of(MissingVariables))
+
+#I am dropping time and identifiers since I am not sure how to use them inteligently
+#to incorporate them as predictors.
+training <- select(training, 
+	-X,
+	- user_name, 
+	-raw_timestamp_part_1, 
+	-raw_timestamp_part_2,
+	-cvtd_timestamp, 
+	-new_window,
+	-num_window)
+testing <- select(testing,
+	-X,
+	- user_name, 
+	-raw_timestamp_part_1, 
+	-raw_timestamp_part_2,
+	-cvtd_timestamp, 
+	-new_window,
+	-num_window)
+```
+
+# Data Partition within Training Set
+
+Within the training set I took a 75% sample with which to develop the models and reserved a 25% on which to test them.
+
+```{r}
+inTrain <- createDataPartition(y=training$classe, p=0.75, list=FALSE)
+train <- training[inTrain,]
+test <- training[-inTrain,]
+```
+
+# Model Development
+
+I use the autmoated functions of the caret package to develop several models.  I modify the "method" argument to select different methods to develop different models.  A CART model is first developed using the 'rpart' method, then a Stochastic Gradient Boosting model with the 'gbm' method and finally a Linear Discriminant Analysis using the 'lda' method.  Of note, I attempted a Random Forest model but my computer could not complete the task.  The chosen models, were simply some of those recommended in the Coursera course.  There are many, many more to choose from.
+
+```{r, results='hide',warning=FALSE, message=FALSE, cache=TRUE}
+rpart.model <- train(classe ~ ., data=train, method='rpart')
+gbm.model <- train(classe ~ ., data=train, method='gbm')#boosting
+lda.model <- train(classe ~ ., data=train, method='lda')#linear discriminant analysis
+```
+
+# Estimating Out of Sample Error
+
+I now use the models developed on the 75% partition of the training dataset, apply them to the 25% partition of the same set and compare the predicted vs actual bicep curl classifications.
+
+```{r}
+rpart.predict <- predict(rpart.model, test)
+gbm.predict   <- predict(gbm.model, test)
+lda.predict   <- predict(lda.model, test)
+```
+
+## CART performance
+```{r}
+confusionMatrix(rpart.predict, test$classe)
+```
+## Stochastic Gradient Boosting performance
+```{r}
+confusionMatrix(gbm.predict, test$classe)
+```
+## Linear Discriminant Analysis performance
+```{r}
+confusionMatrix(lda.predict, test$classe)
+```
+#Conclusion
+From the above output, we see that the overall predictive accuracy is greatest with the Stochastic Gradient Boosting model at 96% when compared to the CART and LDA models (overall accuracy 49% and 69%, respectively).
