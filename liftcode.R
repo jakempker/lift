@@ -74,3 +74,6 @@ confusionMatrix(rpart.predict, test$classe)$overall["Accuracy"]
 confusionMatrix(gbm.predict, test$classe)$overall["Accuracy"]
 confusionMatrix(lda.predict, test$classe)$overall["Accuracy"]
 
+library(knitr)
+
+knit2html("lift.Rmd")
